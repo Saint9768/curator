@@ -44,8 +44,11 @@ public class InterProcessMutex implements InterProcessLock, Revocable<InterProce
 
     private static class LockData
     {
+        // 持有锁的线程
         final Thread owningThread;
+        // 锁的路径
         final String lockPath;
+        // 重入锁的次数
         final AtomicInteger lockCount = new AtomicInteger(1);
 
         private LockData(Thread owningThread, String lockPath)
@@ -143,6 +146,7 @@ public class InterProcessMutex implements InterProcessLock, Revocable<InterProce
         int newLockCount = lockData.lockCount.decrementAndGet();
         if ( newLockCount > 0 )
         {
+            // 表示锁重入，不直接删除节点
             return;
         }
         if ( newLockCount < 0 )
@@ -151,6 +155,7 @@ public class InterProcessMutex implements InterProcessLock, Revocable<InterProce
         }
         try
         {
+            // 释放锁：删除临时节点，删除watch
             internals.releaseLock(lockData.lockPath);
         }
         finally
@@ -224,20 +229,26 @@ public class InterProcessMutex implements InterProcessLock, Revocable<InterProce
            can be only acted on by a single thread so locking isn't necessary
         */
 
+        // 当前线程
         Thread currentThread = Thread.currentThread();
 
+        // 当前线程持有的锁信息
         LockData lockData = threadData.get(currentThread);
         if ( lockData != null )
         {
-            // re-entering
+            // 可重入，lockCount +1；
+            // 此处只在本地变量变化了，没发生任何网络请求；对比redisson的分布式锁可重入的实现是需要操作redis的
             lockData.lockCount.incrementAndGet();
             return true;
         }
 
+        // 进行加锁，继续往里跟
         String lockPath = internals.attemptLock(time, unit, getLockNodeBytes());
         if ( lockPath != null )
         {
+            // 加锁成功
             LockData newLockData = new LockData(currentThread, lockPath);
+            // 放入map
             threadData.put(currentThread, newLockData);
             return true;
         }

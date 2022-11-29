@@ -66,6 +66,7 @@ public class LockInternals
         @Override
         public void process(WatchedEvent event)
         {
+            // 收到监听的事件之后进行唤醒，唤醒的对象和synchronized的对象是同一个
             client.postSafeNotify(LockInternals.this);
         }
     };
@@ -209,6 +210,7 @@ public class LockInternals
     String attemptLock(long time, TimeUnit unit, byte[] lockNodeBytes) throws Exception
     {
         final long      startMillis = System.currentTimeMillis();
+        // 将时间统一格式化ms
         final Long      millisToWait = (unit != null) ? unit.toMillis(time) : null;
         final byte[]    localLockNodeBytes = (revocable.get() != null) ? new byte[0] : lockNodeBytes;
         int             retryCount = 0;
@@ -222,7 +224,9 @@ public class LockInternals
 
             try
             {
+                // 创建临时有序节点
                 ourPath = driver.createsTheLock(client, path, localLockNodeBytes);
+                // 判断是否为第一个节点 如果是表明加锁成功。跟进去
                 hasTheLock = internalLockLoop(startMillis, millisToWait, ourPath);
             }
             catch ( KeeperException.NoNodeException e )
@@ -274,29 +278,44 @@ public class LockInternals
         boolean     doDelete = false;
         try
         {
+            // debug进不去，暂时忽略
             if ( revocable.get() != null )
             {
                 client.getData().usingWatcher(revocableWatcher).forPath(ourPath);
             }
 
+            // 获取锁成功才会退出这个while  或者客户端状态不正常
             while ( (client.getState() == CuratorFrameworkState.STARTED) && !haveTheLock )
             {
+                // 获取所有子节点 并排好序
                 List<String>        children = getSortedChildren();
                 String              sequenceNodeName = ourPath.substring(basePath.length() + 1); // +1 to include the slash
 
+                /**
+                 * 判断是否为第一个节点
+                 *     返回值predicateResults中的getsTheLock()表示加锁是否成功；
+                 *     pathToWatch()表示加锁失败后监听的节点
+                 */
                 PredicateResults    predicateResults = driver.getsTheLock(client, children, sequenceNodeName, maxLeases);
                 if ( predicateResults.getsTheLock() )
                 {
+                    // 当前节点是第一个节点  加锁成功  退出while循环
                     haveTheLock = true;
                 }
                 else
                 {
+                    // 监听上一个节点 getPathToWatch()返回的就是自己前面的节点
                     String  previousSequencePath = basePath + "/" + predicateResults.getPathToWatch();
 
+                    // 这里加互斥锁的对象和Watcher唤醒的对象是一样的
                     synchronized(this)
                     {
                         try
                         {
+                            /**
+                             * 监听前一个节点，watcher里面会进行唤醒；
+                             *     这里只会监听前一个节点，防止羊群效应。这块对比redisson是使用pubsub 唤醒全部节点
+                             */
                             // use getData() instead of exists() to avoid leaving unneeded watchers which is a type of resource leak
                             client.getData().usingWatcher(watcher).forPath(previousSequencePath);
                             if ( millisToWait != null )
@@ -309,10 +328,12 @@ public class LockInternals
                                     break;
                                 }
 
+                                // 加锁的时间限制
                                 wait(millisToWait);
                             }
                             else
                             {
+                                // 加锁没有时间限制，则一直等待
                                 wait();
                             }
                         }

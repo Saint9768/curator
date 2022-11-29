@@ -347,6 +347,7 @@ public interface CuratorFramework extends Closeable
     {
         return runSafe(() -> {
             synchronized(monitorHolder) {
+                // 唤醒wait的线程  注意此处是全部唤醒  去检查自己是不是第一个节点
                 monitorHolder.notifyAll();
             }
         });
