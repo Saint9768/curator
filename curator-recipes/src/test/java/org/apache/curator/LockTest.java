@@ -30,7 +30,7 @@ public class LockTest {
             //加锁
             interProcessMutex.acquire();
             System.out.println(Thread.currentThread().getName() + "获取锁成功");
-            Thread.sleep(30_000);
+            Thread.sleep(60_000);
         } catch (Exception e) {
             e.printStackTrace();
         } finally {
